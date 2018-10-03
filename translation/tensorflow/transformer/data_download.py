@@ -426,11 +426,15 @@ def main(unused_argv):
       vocab_file, train_files_flat, _TARGET_VOCAB_SIZE, _TARGET_THRESHOLD,
       min_count=None if FLAGS.search else _TRAIN_DATA_MIN_COUNT)
 
+  with tf.gfile.Open(vocab_file, "r") as f:
+    vocab_size = len(f.readlines())
+  mlperf_log.transformer_print(key=mlperf_log.PREPROC_VOCAB_SIZE, value=vocab_size)
+
   tf.logging.info("Step 3/4: Compiling training and evaluation data")
   compiled_train_files = compile_files(FLAGS.raw_dir, train_files, _TRAIN_TAG)
   compiled_eval_files = compile_files(FLAGS.raw_dir, eval_files, _EVAL_TAG)
 
-  # Tokenize and save data as Examples in the TFRecord format.
+  # Tokenize and save data as Examples in the TFRecord or JSON format.
   tf.logging.info("Step 4/4: Preprocessing and saving data")
   train_tfrecord_files = encode_and_save_files(
       subtokenizer, FLAGS.data_dir, compiled_train_files, _TRAIN_TAG,
@@ -439,6 +443,11 @@ def main(unused_argv):
       subtokenizer, FLAGS.data_dir, compiled_eval_files, _EVAL_TAG,
       _EVAL_SHARDS, FLAGS.format)
 
+  # This shuffle is different from any per-epoch shuffling during training. This
+  # is performed once when constructing the base data artifacts.
+  random.seed(0)
+  mlperf_log.transformer_print(key=mlperf_log.PREPROC_FIX_SHARD_SHUFFLE_SEED, value=0)
+  mlperf_log.transformer_print(key=mlperf_log.PREPROC_SHARD_SHUFFLE)
   for fname in train_tfrecord_files:
     if FLAGS.format == "tfrecords":
       shuffle_records(fname)

@@ -66,9 +66,11 @@ MODEL_HP_MF_DIM = "model_hp_mf_dim"
 MODEL_HP_MLP_LAYER_SIZES = "model_hp_mlp_layer_sizes"
 
 # Transformer
-
 TRANSFORMER = "transformer"
 
+PREPROC_FIX_SHARD_SHUFFLE_SEED = "preproc_fix_shard_shuffle_seed"
+PREPROC_SHARD_SHUFFLE = "preproc_shard_shuffle"
+PREPROC_VOCAB_SIZE = "preproc_vocab_size"
 
 
 def get_caller(stack_index=2):
