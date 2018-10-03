@@ -65,6 +65,10 @@ OPT_HP_EPSILON = "opt_hp_epsilon"
 MODEL_HP_MF_DIM = "model_hp_mf_dim"
 MODEL_HP_MLP_LAYER_SIZES = "model_hp_mlp_layer_sizes"
 
+# Transformer
+
+TRANSFORMER = "transformer"
+
 
 
 def get_caller(stack_index=2):
@@ -109,6 +113,7 @@ def mlperf_print(key, value=None, benchmark=None, stack_offset=0):
 
 
 ncf_print = functools.partial(mlperf_print, benchmark=NCF)
+transformer_print = functools.partial(mlperf_print, benchmark=TRANSFORMER)
 
 
 if __name__ == '__main__':

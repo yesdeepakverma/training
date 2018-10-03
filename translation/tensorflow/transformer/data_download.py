@@ -19,15 +19,18 @@ from __future__ import division
 from __future__ import print_function
 
 import argparse
+import json
 import os
 import random
 import sys
 import tarfile
-import urllib
+# import urllib
 
 import six
+from six.moves.urllib import request as urllib_request
 import tensorflow as tf
 
+import mlperf_log
 from utils import tokenizer
 
 # Data sources for training/evaluating the transformer translation model.
@@ -154,7 +157,7 @@ def download_from_url(path, url):
     filename = os.path.join(path, filename)
     tf.logging.info("Downloading from %s to %s." % (url, filename))
     inprogress_filepath = filename + ".incomplete"
-    inprogress_filepath, _ = urllib.urlretrieve(
+    inprogress_filepath, _ = urllib_request.urlretrieve(
         url, inprogress_filepath, reporthook=download_report_hook)
     # Print newline to clear the carriage return from the download progress.
     print()
@@ -255,7 +258,7 @@ def write_file(writer, filename):
 # Data preprocessing
 ###############################################################################
 def encode_and_save_files(
-    subtokenizer, data_dir, raw_files, tag, total_shards):
+    subtokenizer, data_dir, raw_files, tag, total_shards, fmt):
   """Save data from files as encoded Examples in TFrecord format.
 
   Args:
@@ -265,12 +268,14 @@ def encode_and_save_files(
       the corresponding line in target file will be saved in a tf.Example.
     tag: String that will be added onto the file names.
     total_shards: Number of files to divide the data into.
+    fmt: The data format (TFRecords or JSON)
 
   Returns:
     List of all files produced.
   """
   # Create a file for each shard.
-  filepaths = [shard_filename(data_dir, tag, n + 1, total_shards)
+  suffix = ".json" if fmt == "json" else ""
+  filepaths = [shard_filename(data_dir, tag, n + 1, total_shards, suffix)
                for n in range(total_shards)]
 
   if all_exist(filepaths):
@@ -283,17 +288,28 @@ def encode_and_save_files(
 
   # Write examples to each shard in round robin order.
   tmp_filepaths = [fname + ".incomplete" for fname in filepaths]
-  writers = [tf.python_io.TFRecordWriter(fname) for fname in tmp_filepaths]
+
+  if fmt == "tfrecords":
+    writers = [tf.python_io.TFRecordWriter(fname) for fname in tmp_filepaths]
+  else:
+    writers = [tf.gfile.Open(fname, "w") for fname in tmp_filepaths]
+
   counter, shard = 0, 0
   for counter, (input_line, target_line) in enumerate(zip(
       txt_line_iterator(input_file), txt_line_iterator(target_file))):
     if counter > 0 and counter % 100000 == 0:
       tf.logging.info("\tSaving case %d." % counter)
-    example = dict_to_example(
-        {"inputs": subtokenizer.encode(input_line, add_eos=True),
-         "targets": subtokenizer.encode(target_line, add_eos=True)})
-    writers[shard].write(example.SerializeToString())
+
+    example = {"inputs": subtokenizer.encode(input_line, add_eos=True),
+               "targets": subtokenizer.encode(target_line, add_eos=True)}
+
+    if fmt == "tfrecords":
+      example = dict_to_example(example)
+      writers[shard].write(example.SerializeToString())
+    else:
+      writers[shard].write(json.dumps(example) + "\n")
     shard = (shard + 1) % total_shards
+
   for writer in writers:
     writer.close()
 
@@ -304,10 +320,11 @@ def encode_and_save_files(
   return filepaths
 
 
-def shard_filename(path, tag, shard_num, total_shards):
+def shard_filename(path, tag, shard_num, total_shards, suffix=""):
   """Create filename for data shard."""
-  return os.path.join(
-      path, "%s-%s-%.5d-of-%.5d" % (_PREFIX, tag, shard_num, total_shards))
+  file_name = "%s-%s-%.5d-of-%.5d%s" % (
+    _PREFIX, tag, shard_num, total_shards, suffix)
+  return os.path.join(path, file_name)
 
 
 def shuffle_records(fname):
@@ -331,6 +348,36 @@ def shuffle_records(fname):
   with tf.python_io.TFRecordWriter(fname) as w:
     for count, record in enumerate(records):
       w.write(record)
+      if count > 0 and count % 100000 == 0:
+        tf.logging.info("\tWriting record: %d" % count)
+
+  tf.gfile.Remove(tmp_fname)
+
+
+def shuffle_lines(fname):
+  """Shuffle records in a single file."""
+  tf.logging.info("Shuffling records in file %s" % fname)
+
+  # Rename file prior to shuffling
+  tmp_fname = fname + ".unshuffled"
+  tf.gfile.Rename(fname, tmp_fname)
+
+  records = []
+  with tf.gfile.Open(tmp_fname) as f:
+    for record in f:
+      record = record.strip()
+      if not record:
+        continue
+      records.append(record)
+      if len(records) % 100000 == 0:
+        tf.logging.info("\tRead: %d", len(records))
+
+  random.shuffle(records)
+
+  # Write shuffled records to original file name
+  with tf.gfile.Open(fname, "w") as w:
+    for count, record in enumerate(records):
+      w.write(record + "\n")
       if count > 0 and count % 100000 == 0:
         tf.logging.info("\tWriting record: %d" % count)
 
@@ -387,13 +434,16 @@ def main(unused_argv):
   tf.logging.info("Step 4/4: Preprocessing and saving data")
   train_tfrecord_files = encode_and_save_files(
       subtokenizer, FLAGS.data_dir, compiled_train_files, _TRAIN_TAG,
-      _TRAIN_SHARDS)
+      _TRAIN_SHARDS, FLAGS.format)
   encode_and_save_files(
       subtokenizer, FLAGS.data_dir, compiled_eval_files, _EVAL_TAG,
-      _EVAL_SHARDS)
+      _EVAL_SHARDS, FLAGS.format)
 
   for fname in train_tfrecord_files:
-    shuffle_records(fname)
+    if FLAGS.format == "tfrecords":
+      shuffle_records(fname)
+    else:
+      shuffle_lines(fname)
 
 
 if __name__ == "__main__":
@@ -412,6 +462,14 @@ if __name__ == "__main__":
       "--search", action="store_true",
       help="If set, use binary search to find the vocabulary set with size"
            "closest to the target size (%d)." % _TARGET_VOCAB_SIZE)
+  parser.add_argument(
+      "--format", "-fmt", type=str, default="tfrecords",
+      choices=["tfrecords", "json"],
+      help="The format in which to save the tokenized data. If you are using"
+           "TensorFlow you should use TFRecords. If not, json (one per line) "
+           "is a convenient intermediate to get the data into the record "
+           "format of your choice."
+  )
 
   FLAGS, unparsed = parser.parse_known_args()
   main(sys.argv)

@@ -31,6 +31,7 @@ import tensorflow as tf
 
 import compute_bleu
 from data_download import VOCAB_FILE
+import mlperf_log
 from model import transformer
 from model import model_params
 import translate
