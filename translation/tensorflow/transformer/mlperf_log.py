@@ -68,9 +68,13 @@ MODEL_HP_MLP_LAYER_SIZES = "model_hp_mlp_layer_sizes"
 # Transformer
 TRANSFORMER = "transformer"
 
-PREPROC_FIX_SHARD_SHUFFLE_SEED = "preproc_fix_shard_shuffle_seed"
-PREPROC_SHARD_SHUFFLE = "preproc_shard_shuffle"
+PREPROC_TOKENIZE_TRAINING = "preproc_tokenize_training"
+PREPROC_TOKENIZE_EVAL = "preproc_tokenize_eval"
 PREPROC_VOCAB_SIZE = "preproc_vocab_size"
+PREPROC_NUM_TRAIN_EXAMPLES = "preproc_num_train_examples"
+PREPROC_NUM_EVAL_EXAMPLES = "preproc_num_eval_examples"
+
+INPUT_SHARD_SHUFFLE = "input_shard_shuffle"
 
 
 def get_caller(stack_index=2):

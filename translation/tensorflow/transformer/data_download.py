@@ -271,7 +271,7 @@ def encode_and_save_files(
     fmt: The data format (TFRecords or JSON)
 
   Returns:
-    List of all files produced.
+    List of all files produced and the total number of written examples.
   """
   # Create a file for each shard.
   suffix = ".json" if fmt == "json" else ""
@@ -317,7 +317,7 @@ def encode_and_save_files(
     tf.gfile.Rename(tmp_name, final_name)
 
   tf.logging.info("Saved %d Examples", counter)
-  return filepaths
+  return filepaths, counter
 
 
 def shard_filename(path, tag, shard_num, total_shards, suffix=""):
@@ -436,18 +436,26 @@ def main(unused_argv):
 
   # Tokenize and save data as Examples in the TFRecord or JSON format.
   tf.logging.info("Step 4/4: Preprocessing and saving data")
-  train_tfrecord_files = encode_and_save_files(
+  mlperf_log.transformer_print(key=mlperf_log.PREPROC_TOKENIZE_TRAINING)
+  train_tfrecord_files, num_train_examples = encode_and_save_files(
       subtokenizer, FLAGS.data_dir, compiled_train_files, _TRAIN_TAG,
       _TRAIN_SHARDS, FLAGS.format)
-  encode_and_save_files(
+  mlperf_log.transformer_print(key=mlperf_log.PREPROC_NUM_TRAIN_EXAMPLES,
+                               value=num_train_examples)
+
+  mlperf_log.transformer_print(key=mlperf_log.PREPROC_TOKENIZE_EVAL)
+  _, num_eval_examples = encode_and_save_files(
       subtokenizer, FLAGS.data_dir, compiled_eval_files, _EVAL_TAG,
       _EVAL_SHARDS, FLAGS.format)
+  mlperf_log.transformer_print(key=mlperf_log.PREPROC_NUM_EVAL_EXAMPLES,
+                               value=num_eval_examples)
 
-  # This shuffle is different from any per-epoch shuffling during training. This
-  # is performed once when constructing the base data artifacts.
-  random.seed(0)
-  mlperf_log.transformer_print(key=mlperf_log.PREPROC_FIX_SHARD_SHUFFLE_SEED, value=0)
-  mlperf_log.transformer_print(key=mlperf_log.PREPROC_SHARD_SHUFFLE)
+  #===========================================================================
+  #== First random operation triggers the clock start. =======================
+  #===========================================================================
+  mlperf_log.transformer_print(key=mlperf_log.RUN_START)
+
+  mlperf_log.transformer_print(key=mlperf_log.INPUT_SHARD_SHUFFLE)
   for fname in train_tfrecord_files:
     if FLAGS.format == "tfrecords":
       shuffle_records(fname)
